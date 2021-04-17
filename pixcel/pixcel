@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+
+import argparse
+import logging
+import webcolors
+import sys
+import PIL
+
+from openpyxl import load_workbook
+import openpyxl.utils.cell as utils
+
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+log = logging.getLogger(__name__)
+
+
+def process_pattern(opts):
+
+    # find the numeric coordinates of our last cell -
+    # this is in the same format as the text: row, column
+    # .. and don't forget that x = column, y = row
+    end_cell = utils.coordinate_to_tuple(opts.end_cell)
+
+    # load up the file and select the sheet
+    wb = load_workbook(opts.infile)
+    if opts.sheet:
+        sheet = wb[opts.sheet]
+    else:
+        sheet = wb[wb.sheetnames[0]]
+
+    # create our bitmap, as wide as the cell position
+    gfx = PIL.Image.new('RGB', (end_cell[1], end_cell[0]))
+    log.debug("Creating bitmap %s", gfx.size)
+
+    # for each row
+    for y in range(0, end_cell[0]):
+        # excel coordinates are 1-based
+        row = y + 1
+
+        # for each column...
+        for x in range(0, end_cell[1]):
+            # excel coordinates are 1-based,
+            col = x + 1
+
+            # find the cell
+            cell = sheet.cell(column=col, row=row)
+            log.debug("Reading cell %s at (%d, %d) = (%d, %d)", cell.coordinate, row, col, x, y)
+
+            # this is an un-filled cell, we'll write it as white paint
+            if not cell.fill.fgColor.tint != 0.0:
+                color = (255, 255, 255)
+            # this is a filled cell, use the color requested
+            elif opts.fill_color:
+                color = webcolors.html5_parse_simple_color(f'#{opts.fill_color}')
+            # this is a filled cell, just use black by default
+            else:
+                color = (0, 0, 0)
+
+            try:
+                #log.debug("(%d, %d) = %s", x, y, color)
+                gfx.putpixel((x, y), color)
+
+            except Exception:
+                log.exception("Exception at cell %s", cell.coordinate)
+                sys.exit(-1)
+
+    # save the file
+    with open(opts.outfile, 'wb') as f:
+        gfx.save(f, format='BMP')
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--sheet', type=str,
+                        help = "Name of the sheet (default: first)")
+    parser.add_argument('--fill_color', '--fill-color', type=str,
+                        help = "Fill color, as HTML RRGGBB")
+
+    parser.add_argument('infile', type=str,
+                        help = "Input filename")
+    parser.add_argument('outfile', type=str,
+                        help = "Output filename")
+    parser.add_argument('end_cell', type=str,
+                        help = "End cell, in cell notation (e.g. 'A2', 'CF307', etc.)")
+
+    parser.add_argument('--debug', action = 'store_true',
+                        help = "Enable debug")
+    opts = parser.parse_args()
+
+    if opts.debug:
+        log.setLevel(logging.DEBUG)
+
+    process_pattern(opts)
